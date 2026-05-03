@@ -1,74 +1,64 @@
 # AI News Buddy — MGT 575 Final Project
 
-**Personalized generative-AI news desk:** turn user-supplied interests into grounded story (searched news articles) summaries, editorial visuals, an anchor script, narration audio, and a simple storyboard video — with an explicit multi-step agent trace for transparency.
-
-This README is written so a grader or teammate can **set up the environment, inspect the code, and run the demo** in line with the course final-project expectations.
-
----
-
-## Repository Link
+**Personalized generative-AI news desk:** turn user-supplied interests into grounded story summaries, editorial visuals, an anchor script, narration audio, and a downloadable storyboard video — with an explicit multi-step **agent trace** for transparency.
 
 - **GitHub:** `https://github.com/JiheHe/MGT_575_Final_Project`
+- **Course:** MGT 575 — Generative AI and Social Media (final project)
 
 ---
 
 ## What the application does
 
-**Inputs:** comma-separated interests, news region, number of final stories, candidate pool size, persona, tone (main page).
-
-**Outputs:** ranked candidate table, per-story dual summaries (content vs interest angles), optional images, broadcast script, WAV narration, downloadable MP4 storyboard video, and an **agent trace** for debugging.
-
-**Generative AI angle:** Google Gemini (text, image, TTS) with **model chains** in `.env` (the client tries the next model in the chain when a call fails). **Ranking** can fall back to a **deterministic** word-boundary score on titles/snippets when the API is missing or the ranker errors. **Summarization** requires Gemini for full stories: if the API is unavailable it returns **no summaries**; when the API is available but JSON fields are thin, the summarizer fills gaps with **extractive** helpers on the article/snippet text. **Visual prompts**, **images**, **script**, and **voice** each have their own offline or placeholder paths (see below).
-
-**Fallback summary (no API vs API errors):**
-
-| Stage | If `GEMINI_API_KEY` missing / client unavailable | If Gemini is called but fails for a request |
-|-------|--------------------------------------------------|---------------------------------------------|
-| **Interest context** | Rule-based blurbs + RSS hint heuristics (`src/agents/interest_context.py`) | Same offline path if the enrich call errors |
-| **Ranking** | Word-boundary match scores on title+snippet (`src/agents/ranker.py`) | Falls back to the same boundary scorer after an LLM exception |
-| **Summaries** | **None** (empty list; no template summaries) | Per-story: skip on hard errors; partial JSON gets **extractive** bullet/why-it-matters fill-ins from article/snippet (`src/utils/text_utils.py`) |
-| **Script** | Error-style `BroadcastScript` message (not a generated script) | Requires API once summaries exist |
-| **Visual prompts** | Template prompt from headline (`VisualPromptWriterAgent._fallback`) | Same fallback per story if `_with_gemini` raises |
-| **Images** | Branded **placeholder** PNG | Same if the image model chain exhausts |
-| **Voice** | `None` (no audio file) | `None` if the TTS chain fails |
-| **Video** | Skipped when images/audio missing | Trace notes failure / missing inputs |
+- **Inputs (sidebar):** comma-separated interests, region (RSS edition), number of final stories (1–6), candidate pool size (5–50, default 25). **(Main page):** persona, tone.
+- **Outputs:** ranked candidate table, per-story **dual summaries** (Content tab + Interest tab), one **synthetic editorial image** per story, an anchor **broadcast script**, **WAV** narration, an **MP4 storyboard** with per-segment headline overlay, and an **agent trace** of every intermediate decision.
+- **Generative AI angle:** Google Gemini for text, image (Imagen / Gemini-image), and TTS, each as a **model chain** in `.env` so the client tries the next model when one fails. Ranking and summarization use structured JSON; both have deterministic fallbacks (see below).
 
 ---
 
 ## User interface (Streamlit)
 
-The app is **stepwise** (not a single “generate all” button):
+The app is **stepwise** (no single "generate everything" button):
 
-| Step | Button | Role |
-|------|--------|------|
-| 1 | **Find News** | Profile interests → interest “bundle” context → live RSS (Google + Bing) → rank → **readability / full-text fetch** → grounded **Summarizer** outputs. Clears prior session media. |
-| 2 | **Persona** / **Tone** | Used for **Draft Visuals**, **Prepare Script**, and **Record Briefings** — **not** injected into RSS retrieval, ranking, or summarization prompts (those stay interest- and evidence-grounded). |
-| 3 | **Draft Visuals** | Image prompts + generation (persona/tone affect prompt style). |
-| 4 | **Prepare Script** | Anchor script from structured summaries (persona/tone in instructions). Tight pacing for narration + storyboard is **on** in the UI pipeline. |
-| 5 | **Record Briefings** | TTS from script, then storyboard video aligned to audio. |
+| Step | Button | What it does |
+|------|--------|--------------|
+| 1 | **Find News** | Profile interests → bundle context (lens) → live RSS (Google + Bing) → rank → **readability / full-text fetch** → grounded **Summarizer** outputs. Clears prior session media. |
+| 2 | **Persona** / **Tone** | Used for **Draft Visuals**, **Prepare Script**, **Record Briefings** only — **not** injected into RSS retrieval, ranking, or summarization (those stay interest- and evidence-grounded). |
+| 3 | **Draft Visuals** | Builds visual prompts and renders one editorial image per story (or a branded placeholder if the model chain refuses). |
+| 4 | **Prepare Script** | Writes the anchor broadcast script from the structured summaries; persona/tone shape delivery only. |
+| 5 | **Record Briefings** | TTS (persona-mapped voice) + storyboard MP4 in one pass. |
 
-Buttons use **session state** (locked / ready / done) and disable while a step is running. **Persona** and **Tone** sit on their own row; short explanations live in **`?` tooltips** and a **popover** next to “Generate content”.
+Buttons are gated by a small state machine (`locked` / `ready` / `done` / `busy`) and disabled while any step is running. Persona/Tone live on their own row between *Find News* and the downstream buttons so they can be changed between regenerations without re-running retrieval. Short explanations live in `?` tooltips and a popover next to **Generate content**.
 
 ---
 
 ## System architecture
 
-High-level flow (orchestrator + agents):
-
 ```text
 InterestProfilerAgent
-    → InterestContextAgent (combined lens + RSS query hint)
-    → NewsRetrieverAgent (Google News RSS + Bing News RSS, merged/deduped)
-    → RankingAgent (Gemini semantic scores on metadata; boundary-match fallback if no API)
-    → Readability pass (fetch article text; walk ranked list until enough readable articles)
-    → SummarizerAgent (dual summaries; grounded on title/snippet/article text; interests + lens only)
-    → [UI] ScriptWriterAgent | VisualPromptWriterAgent + ImageGeneratorAgent
-    → [UI] VoiceGeneratorAgent + VideoGeneratorAgent
+  -> InterestContextAgent     # bundle lens + RSS query hint
+  -> NewsRetrieverAgent       # Google News RSS + Bing News RSS, merged & deduped
+  -> RankingAgent             # Gemini semantic scores; word-boundary fallback
+  -> Readability gate         # full-text fetch + LLM judge (is_valid, snake_case reason)
+  -> SummarizerAgent          # dual summaries grounded on title/snippet/article text
+  -> [UI] ScriptWriterAgent | VisualPromptWriterAgent + ImageGeneratorAgent
+  -> [UI] VoiceGeneratorAgent + VideoGeneratorAgent
 ```
 
-**Orchestrator:** `NewsBuddyOrchestrator` in `src/orchestrator.py` exposes `gather_summaries_only` (step 1), then `generate_story_images`, `generate_anchor_script`, `generate_narration_and_storyboard_video` for the UI. A monolithic `run()` still chains the full pipeline for scripted use.
+The orchestrator (`src/orchestrator.py`) exposes `gather_summaries_only` (Step 1), `generate_story_images`, `generate_anchor_script`, and `generate_narration_and_storyboard_video` for the UI; a monolithic `run()` chains everything for scripted use. Pydantic models in `src/models.py` carry the typed payload between agents.
 
-**Media workspace:** `src/utils/media_workspace.py` clears `generated/images`, `generated/audio`, `generated/video` on a new **Find News** session, clears images before re-drafting visuals, audio before re-recording, and sweeps obvious **MoviePy temp** files from the project root if they appear.
+**Media workspace:** `src/utils/media_workspace.py` clears `generated/images`, `generated/audio`, `generated/video` on a new *Find News* session, clears images before re-drafting visuals, audio before re-recording, and sweeps any stray temp files (`*TEMP_MPY*`, `*TEMP_wvf*`, `briefing_*TEMP*`) from the project root as a precaution.
+
+---
+
+## Fallback behavior (no API key vs. mid-run errors)
+
+Summaries require Gemini and **never** fall back to a templated stand-in — if the LLM is unavailable the story is omitted. The other stages degrade gracefully:
+
+- **Interest context, ranking, visual prompts, script** — each has a deterministic offline path (rule-based bundle blurbs; `\b<term>\b` boundary-match scores on title+snippet+topic; template prompts; a clear "script not generated" message). A successful Gemini call with a thin payload still gets patched with extractive helpers (`fallback_key_points`).
+- **Images** — branded placeholder card via Pillow when the image-model chain refuses or errors.
+- **Voice / video** — return `None` if their inputs (script / images + audio) aren't both present; the trace records the reason.
+
+The full per-stage decisions are visible in the **Agent Trace** expander at the bottom of the UI.
 
 ---
 
@@ -76,7 +66,7 @@ InterestProfilerAgent
 
 From the **repository root** (`MGT_575_Final_Project/`):
 
-1. **Python 3.11+** recommended (match your course environment).
+1. Python 3.11+ recommended.
 
 2. Create and activate a virtual environment:
 
@@ -85,7 +75,11 @@ From the **repository root** (`MGT_575_Final_Project/`):
    .\.venv\Scripts\Activate.ps1
    ```
 
-   macOS / Linux: `python3 -m venv .venv && source .venv/bin/activate`
+   macOS / Linux:
+
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   ```
 
 3. Install dependencies:
 
@@ -93,21 +87,21 @@ From the **repository root** (`MGT_575_Final_Project/`):
    pip install -r requirements.txt
    ```
 
-4. **Secrets (never commit real keys):**
+4. Secrets (never commit real keys):
 
    ```bash
    copy .env.example .env
    ```
 
-   Edit `.env` and set at least `GEMINI_API_KEY` for full LLM ranking, summarization, script, images, and TTS. Without it, ranking uses a keyword-style fallback and summarization returns no Gemini summaries (the app will surface empty-story warnings).
+   Edit `.env` and set at least `GEMINI_API_KEY` for full Gemini features. Without it, ranking falls back to keyword scoring and summaries are not produced.
 
-5. **Run the UI:**
+5. Run the UI:
 
    ```bash
    streamlit run app.py
    ```
 
-6. In the browser: run **Find News** first, then **Draft Visuals** / **Prepare Script** in either order, then **Record Briefings** when both script and images exist.
+6. In the browser: **Find News** → **Draft Visuals** / **Prepare Script** (either order) → **Record Briefings**.
 
 ---
 
@@ -115,11 +109,11 @@ From the **repository root** (`MGT_575_Final_Project/`):
 
 | Variable | Purpose |
 |----------|---------|
-| `GEMINI_API_KEY` | Required for full Gemini features. |
-| `GEMINI_TEXT_MODELS` | Comma-separated text model chain (see `.env.example`). Legacy: `GEMINI_TEXT_MODEL` + `GEMINI_TEXT_FALLBACK_MODELS`. |
+| `GEMINI_API_KEY` | Required for Gemini text, image, and TTS. |
+| `GEMINI_TEXT_MODELS` | Comma-separated text-model chain. Legacy: `GEMINI_TEXT_MODEL` + `GEMINI_TEXT_FALLBACK_MODELS`. |
 | `GEMINI_IMAGE_MODELS` | Image / image-capable model chain. Legacy: `GEMINI_IMAGE_MODEL` + `GEMINI_IMAGE_FALLBACK_MODELS`. |
 | `GEMINI_VOICE_MODELS` | TTS model chain. Legacy: `GEMINI_VOICE_MODEL` + `GEMINI_VOICE_FALLBACK_MODELS`. |
-| `SEARCH_API_KEY` | Reserved for future search providers; RSS path does not require it. |
+| `SEARCH_API_KEY` | Reserved for future paid search providers; RSS path does not require it. |
 | `SEARCH_PROVIDER` | Default `rss` (live RSS retrieval in `NewsRetrieverAgent`). |
 
 Resolved paths and model routing live in `src/config.py` and `src/gemini_client.py`.
@@ -138,31 +132,33 @@ MGT_575_Final_Project/
     orchestrator.py      # Pipeline coordination
     models.py            # Pydantic data models
     config.py            # Env + generated/ directories
-    gemini_client.py     # Gemini text / image / TTS with fallbacks
+    gemini_client.py     # Gemini text / image / TTS with model chains
     agents/              # One module per agent
     utils/               # media_workspace, article_fetcher, text/display helpers
   generated/
-    images/ .gitkeep
-    audio/  .gitkeep
-    video/  .gitkeep     # intermediates; final MP4 may also be offered as bytes in UI
+    images/  audio/  video/   # session artifacts; cleared on Find News
+                              # (MP4 currently returned in-memory; folder kept
+                              #  for legacy/debug paths)
 ```
 
 ---
 
 ## Safety, grounding, and ethics
 
-- Summaries are instructed to stay **grounded** in fetched title, snippet, and article body when available; **uncertainty** is surfaced when text is thin.
-- **Images** are labeled as AI-generated editorial visuals, not documentary evidence.
-- **Persona/tone** intentionally do **not** steer the **summarization** step, to reduce “spin” on source material; they shape **delivery** (script, voice, prompt style) only after facts are condensed.
-- **API keys** belong only in `.env` (and in your report: describe variables, not pasted secrets), per standard practice and the course reminder on secrets.
+- Summaries stay **grounded** in the fetched title, snippet, and full article body, with a per-story `uncertainty_or_limitations` field rendered verbatim.
+- Every generated image is captioned **"AI-generated image (synthetic). Not a real photograph or evidence; used for visual context only."**; visual prompts ban real-person likeness, recognizable public figures, logos, brand names, text overlays, and evidence-style photography.
+- **Persona/tone** intentionally do **not** steer summarization or ranking. They shape delivery (script, voice, image style) only after facts are condensed, so a "Friendly buddy / energetic" delivery cannot rephrase a fact into a punchier-but-misleading version of itself.
+- API keys belong only in `.env` (and in your report: describe variables, not pasted secrets).
 
 ---
 
-## Known limitations
+## Known limitations (MVP)
 
-- RSS feeds and HTML fetchers hit **paywalls, bot protection, and sparse pages**; the readability pass may skip many candidates, so the **candidate pool size ≠ number of final stories**.
-- **Bing** RSS in this MVP depends on the model-produced **query hint** from `InterestContextAgent`; if that is empty, Bing is skipped.
-- **No multi-user persistence**; state is per browser session (`st.session_state`).
-- **Video** assembly uses MoviePy; some environments may write temp files — the workspace helper attempts to remove stray root artifacts after **Find News**.
+- **Retrieval is a black box.** The user has no UI control over date range (Google query is internally scoped to the last 7 days), no publisher whitelist/blacklist, and no per-article approve/reject. This is the most consistent piece of feedback from informal user testing.
+- **Pool ≠ final stories.** RSS feeds and HTML fetchers hit paywalls, bot protection, and sparse pages; the readability gate may drop many candidates, so the final number of summaries is often less than the candidate pool size.
+- **Bing RSS depends on the LLM query hint** from `InterestContextAgent`. If the hint is empty (transient Gemini outage), Bing is skipped on purpose to avoid a generic Bing query polluting candidates.
+- **Image moderation is broad.** Imagen / Gemini-image endpoints occasionally refuse safe editorial prompts; the placeholder card prevents a broken UI but a re-run is sometimes needed to get an actual image.
+- **No multi-user persistence.** State is per browser session (`st.session_state`).
+- **Video assembly uses `ffmpeg` directly** (located via `imageio-ffmpeg`); MoviePy is only used to read audio duration. The MP4 is built into the OS temp directory, returned in-memory to Streamlit, and unlinked.
 
 ---
