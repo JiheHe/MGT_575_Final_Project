@@ -8,8 +8,8 @@ from src.models import UserProfile
 
 class InterestContextAgent:
     """
-    Interprets the user's interest bundle (e.g. how 'markets' should be read alongside 'AI' and 'robotics')
-    and produces hints for retrieval, ranking, and summarization.
+    Interprets the user's interest bundle as one unified lens so each term is read in
+    the context of the others, and produces hints for retrieval, ranking, and summarization.
     """
 
     def __init__(self, gemini_client: GeminiClient) -> None:
@@ -26,57 +26,30 @@ class InterestContextAgent:
             except (RuntimeError, ValueError, TypeError):
                 pass
 
-        # Offline fallback: brief, human-friendly contextual definitions.
-        # This is only used when Gemini is unavailable.
+        # Offline fallback (only used when Gemini is unavailable).
+        # Generic per-interest treatment: every term is interpreted as part of the
+        # user's bundle, with no hand-tuned rules for any specific topic.
         joined = ", ".join(interests)
-        has_ai = any(i.lower() == "ai" for i in interests)
-        has_robotics = any(i.lower() == "robotics" for i in interests)
-        has_markets = any(i.lower() == "markets" for i in interests)
-        ai_robotics_lens = has_ai and has_robotics
-
-        def _mk(defn: str) -> str:
-            return f"{defn} (in your bundle: {joined})"
-
         per: dict[str, str] = {}
         for item in interests:
-            low = item.lower().strip()
-            if low == "ai":
-                per[item] = _mk(
-                    "AI refers to machine learning, automation, and deployed intelligence (including AI software and AI-enabling chips) that can affect products and operations."
-                )
-            elif low == "robotics":
-                per[item] = _mk(
-                    "Robotics refers to robots, automation systems, and industrial/consumer robotics deployments that create operational change and measurable adoption signals."
-                )
-            elif low == "markets":
-                per[item] = _mk(
-                    "Markets refers to financial and sector-moving developments tied to AI/robotics—e.g., investor sentiment, company performance, supply-chain implications, and capital allocation—rather than unrelated commodity price moves."
-                )
-            else:
-                per[item] = _mk(
-                    f"{item} is treated as a briefing lens; the app will prioritize stories that connect it to the other items in your bundle."
-                )
-
+            label = item.strip()
+            if not label:
+                continue
+            per[label] = (
+                f"{label} is interpreted as part of your unified bundle ({joined}); "
+                "the app prioritizes stories that connect this term to the other items in your bundle "
+                "rather than coverage where it appears in isolation."
+            )
         combined = (
             "Your interests are treated as one unified briefing lens. "
-            "Ambiguous terms are interpreted using the full bundle so the search and ranking focus on stories where the topics reinforce each other. "
+            "Ambiguous terms are interpreted using the full bundle so retrieval and ranking focus on "
+            "stories where the topics reinforce each other rather than where any single term appears alone."
         )
-        if ai_robotics_lens and has_markets:
-            combined += "For example, 'markets' is read as AI/robotics-linked market dynamics (investors, sector results, and supply-chain signals)."
         return profile.model_copy(
             update={
                 "interest_context_by_interest": per,
                 "combined_interest_context": combined,
-                "search_rss_query_hint": " ".join(
-                    [
-                        "AI",
-                        "robotics" if has_robotics else "",
-                        "markets" if has_markets else "",
-                        "investors",
-                        "sector",
-                        "adoption",
-                    ]
-                ).strip(),
+                "search_rss_query_hint": " ".join(i.strip() for i in interests if i.strip()),
             }
         )
 
@@ -84,8 +57,10 @@ class InterestContextAgent:
         interests = profile.interests
         prompt = (
             "You help a news app interpret a user's comma-separated interests as one coherent bundle. "
-            "Disambiguate ambiguous words using the full list (e.g. 'markets' with 'AI' and 'robotics' "
-            "should be about AI/robotics-linked market dynamics and investor/sector signals, not generic oil/commodity price stories). "
+            "Disambiguate ambiguous words using the full list: an interest's meaning should be inferred "
+            "from how it relates to the user's other interests in this bundle, not from its most common "
+            "stand-alone meaning. Apply this principle to whatever interests the user provides; do not "
+            "assume any specific topic, industry, or vocabulary. "
             "Stay concise. Return strict JSON with keys:\n"
             "- per_interest: object mapping each interest string (exact keys below) to an object with:\n"
             "  - definition: a 1-2 sentence contextual definition of how to read that term inside the bundle\n"

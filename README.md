@@ -54,7 +54,7 @@ The orchestrator (`src/orchestrator.py`) exposes `gather_summaries_only` (Step 1
 
 Summaries require Gemini and **never** fall back to a templated stand-in — if the LLM is unavailable the story is omitted. The other stages degrade gracefully:
 
-- **Interest context, ranking, visual prompts, script** — each has a deterministic offline path (rule-based bundle blurbs; `\b<term>\b` boundary-match scores on title+snippet+topic; template prompts; a clear "script not generated" message). A successful Gemini call with a thin payload still gets patched with extractive helpers (`fallback_key_points`).
+- **Interest context, ranking, visual prompts, script** — each has a deterministic offline path (a generic per-interest template that treats every term as part of the user's bundle; `\b<term>\b` boundary-match scores on title+snippet+topic; template visual prompts; a clear "script not generated" message). A successful Gemini call with a thin payload still gets patched with extractive helpers (`fallback_key_points`). No stage hard-codes rules for any specific topic.
 - **Images** — branded placeholder card via Pillow when the image-model chain refuses or errors.
 - **Voice / video** — return `None` if their inputs (script / images + audio) aren't both present; the trace records the reason.
 
