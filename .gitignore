@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+generated/images/*
+generated/audio/*
+generated/video/*
+!generated/images/.gitkeep
+!generated/audio/.gitkeep
+!generated/video/.gitkeep
+# Editor / temp exports (should not appear; swept on "Find News")
+/briefing_*TEMP*.mp4

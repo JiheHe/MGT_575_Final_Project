@@ -1,0 +1,50 @@
+[
+  {
+    "title": "Enterprise AI copilots shift from pilots to scaled internal deployments",
+    "source": "Sample Tech Wire",
+    "url": "https://example.com/sample/ai-copilots-enterprise-rollout",
+    "published_date": "2026-04-25",
+    "snippet": "Large organizations report moving AI assistants into finance, HR, and support workflows with tighter governance controls and usage analytics.",
+    "topic": "ai"
+  },
+  {
+    "title": "Regional banks test AI tools to speed fraud alerts and customer outreach",
+    "source": "Sample Finance Desk",
+    "url": "https://example.com/sample/banking-ai-fraud-alerts",
+    "published_date": "2026-04-24",
+    "snippet": "Mid-size banks are evaluating AI triage systems to prioritize suspicious transactions while balancing compliance and false-positive risk.",
+    "topic": "finance"
+  },
+  {
+    "title": "Warehouse robotics startups expand with mixed human-robot operations",
+    "source": "Sample Industry Journal",
+    "url": "https://example.com/sample/warehouse-robotics-expansion",
+    "published_date": "2026-04-23",
+    "snippet": "New deployments pair autonomous mobile robots with human supervisors to improve fulfillment speed during peak demand periods.",
+    "topic": "robotics"
+  },
+  {
+    "title": "Utilities invest in AI forecasting to stabilize grids during heat waves",
+    "source": "Sample Climate Brief",
+    "url": "https://example.com/sample/grid-ai-forecasting",
+    "published_date": "2026-04-22",
+    "snippet": "Energy operators are piloting demand prediction models to reduce outage risks as seasonal weather volatility increases.",
+    "topic": "climate"
+  },
+  {
+    "title": "Chipmakers announce new edge AI modules for low-power devices",
+    "source": "Sample Hardware Report",
+    "url": "https://example.com/sample/edge-ai-chip-modules",
+    "published_date": "2026-04-21",
+    "snippet": "Vendors introduced compact AI inference modules aimed at industrial sensors, wearables, and smart home endpoints.",
+    "topic": "technology"
+  },
+  {
+    "title": "Media companies rethink subscription bundles with AI-personalized curation",
+    "source": "Sample Business Ledger",
+    "url": "https://example.com/sample/media-ai-curation-bundles",
+    "published_date": "2026-04-20",
+    "snippet": "Publishers are experimenting with AI-powered topic bundles to improve retention while maintaining transparency around recommendations.",
+    "topic": "business"
+  }
+]
